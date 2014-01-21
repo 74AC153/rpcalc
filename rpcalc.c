@@ -35,13 +35,13 @@ typedef enum {
 typedef status_t (*fun_t)(val_t *stack, size_t stack_max, size_t *stack_top);
 
 #define STACK_OUTPUT_NEED(N) \
-	do { if(*stack_top == stack_max - (N)) return FUN_OVERFLOW; } while(0)
+	do { if(*stack_top == stack_max-(N)-1) return FUN_OVERFLOW; } while(0)
 
 #define STACK_INPUT_NEED(N) \
-	do { if(*stack_top < (N)) return FUN_UNDERFLOW; } while(0)
+	do { if(*stack_top < (N)-1) return FUN_UNDERFLOW; } while(0)
 
 #define STACK_ARG(N) \
-	stack[*stack_top - 1 - (N)]
+	stack[*stack_top - (N)]
 
 #define STACK_CONSUME(N) \
 	do{ (*stack_top) -= (N); return FUN_OK; } while(0)
@@ -197,9 +197,9 @@ status_t fun_top(val_t *stack, size_t stack_max, size_t *stack_top)
 status_t fun_stack(val_t *stack, size_t stack_max, size_t *stack_top)
 {
 	size_t i;
-	for(i = 0; i < *stack_top; i++) {
-		if(STACK_ARG(0).type == VAL_LONG) printf("%ld\n", STACK_ARG(0).u.l);
-		else printf("%20.20f\n", STACK_ARG(0).u.d);
+	for(i = 0; i <= *stack_top; i++) {
+		if(stack[i].type == VAL_LONG) printf("%ld\n", stack[i].u.l);
+		else printf("%20.20f\n", stack[i].u.d);
 	}
 	STACK_CONSUME(0);
 }
@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
 
 	#define DSTACK_CAP 256
 	val_t dstack[DSTACK_CAP];
-	size_t dstack_top = 0;
+	long dstack_top = -1;
 	
 	#define CSTACK_CAP 256
 	clnode_t *cstack[CSTACK_CAP];
@@ -308,8 +308,8 @@ int main(int argc, char *argv[])
 			// incomplete conversion
 			goto try_double;
 		}
-		dstack[dstack_top].u.l = l;
-		dstack[dstack_top++].type = VAL_LONG;
+		dstack[++dstack_top].u.l = l;
+		dstack[dstack_top].type = VAL_LONG;
 		continue;
 
 		try_double:
@@ -320,8 +320,8 @@ int main(int argc, char *argv[])
 			return -1;
 		}
 
-		dstack[dstack_top].u.d = d;
-		dstack[dstack_top++].type = VAL_DOUBLE;
+		dstack[++dstack_top].u.d = d;
+		dstack[dstack_top].type = VAL_DOUBLE;
 	}
 
 
