@@ -243,6 +243,62 @@ reset
 
 #define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
+int exec_token(token_t *tok, char *name,
+               val_t *dstack, long *dstack_top, size_t dstack_max,
+               token_t **cstack, long *cstack_top, size_t cstack_max)
+{
+	size_t j;
+	char *strend;
+	double d;
+	long l;
+	status_t status;
+
+	for(j = 0; j < ARRLEN(builtins); j++) {
+		if(strcmp(tok->name, builtins[j].name) == 0) {
+			status = builtins[j].fun(dstack, ARRLEN(dstack), dstack_top);
+			if(status != FUN_OK) {
+				return status;
+			}
+			break;
+		}
+	}
+
+	if(j != ARRLEN(builtins)) return 0;
+
+	if(*dstack_top == dstack_max) {
+		// overflow
+		fprintf(stderr, "%s: stack overflow\n", name);
+		return -1;
+	}
+		
+	l = strtol(tok->name, &strend, 0);
+	if(strend == tok->name) {
+		// no conversion
+		fprintf(stderr, "%s: unknown token: %s\n", name, tok->name);
+		return -1;
+	}
+	if(*strend) {
+		// incomplete conversion
+		goto try_double;
+	}
+	dstack[++(*dstack_top)].u.l = l;
+	dstack[*dstack_top].type = VAL_LONG;
+	return 0;
+
+	try_double:
+	d = strtod(tok->name, &strend);
+	if(*strend) {
+		// incomplete conversion
+		fprintf(stderr, "%s: unknown token: %s\n", name, tok->name);
+		return -1;
+	}
+
+	dstack[++(*dstack_top)].u.d = d;
+	dstack[*dstack_top].type = VAL_DOUBLE;
+
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	int i, j;
@@ -273,63 +329,22 @@ int main(int argc, char *argv[])
 	}
 
 	for(cstack[++cstack_top] = toplevel;
-	    (cstack_top >= 0);
+	    cstack_top >= 0;
 		cstack[cstack_top] = cstack[cstack_top]->next) {
 
 		token_t *tok = (token_t *) cstack[cstack_top];
 
 		if(!tok) {
-			if(! cstack_top) break;
-			cstack_top--;
-			continue;
-		}
-
-		for(j = 0; j < sizeof(builtins) / sizeof(builtins[0]); j++) {
-			if(strcmp(tok->name, builtins[j].name) == 0) {
-				status = builtins[j].fun(dstack, ARRLEN(dstack), &dstack_top);
-				if(status != FUN_OK) {
-					return status;
-				}
-				break;
+			if(cstack_top) {
+				fprintf(stderr, "%s: unexpected end of program\n", name);
 			}
+			break;
 		}
 
-		if(j != ARRLEN(builtins)) continue;
-		
-		char *strend;
-		double d;
-		long l;
-
-		if(dstack_top == ARRLEN(dstack)) {
-			// overflow
-			fprintf(stderr, "%s: stack overflow\n", name);
-			return -1;
-		}
-			
-		l = strtol(tok->name, &strend, 0);
-		if(strend == tok->name) {
-			// no conversion
-			fprintf(stderr, "%s: unknown token: %s\n", name, tok->name);
-			return -1;
-		}
-		if(*strend) {
-			// incomplete conversion
-			goto try_double;
-		}
-		dstack[++dstack_top].u.l = l;
-		dstack[dstack_top].type = VAL_LONG;
-		continue;
-
-		try_double:
-		d = strtod(tok->name, &strend);
-		if(*strend) {
-			// incomplete conversion
-			fprintf(stderr, "%s: unknown token: %s\n", name, tok->name);
-			return -1;
-		}
-
-		dstack[++dstack_top].u.d = d;
-		dstack[dstack_top].type = VAL_DOUBLE;
+		int status = exec_token(tok, name,
+               dstack, &dstack_top, ARRLEN(dstack),
+               cstack, &cstack_top, ARRLEN(cstack));
+		if(status != 0) break;
 	}
 
 	while(toplevel) {
