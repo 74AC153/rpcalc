@@ -2,8 +2,16 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <assert.h>
+#include <string.h>
 
 #include "clnode.h"
+
+#define TOKLEN 64
+typedef struct {
+	clnode_t hdr;
+	char name[TOKLEN];
+} token_t;
 
 typedef enum {
 	VAL_LONG,
@@ -249,9 +257,25 @@ int main(int argc, char *argv[])
 	clnode_t cstack[CSTACK_CAP];
 	size_t cstack_top = 0;
 
+	clnode_t toplevel, *cursor;
+	clnode_init(&toplevel);
+
 	for(i = 1; i < argc; i++) {
+		token_t *tok = malloc(sizeof(token_t));
+		assert(tok);
+		clnode_init(&tok->hdr);
+		strncpy(tok->name, argv[i], sizeof(tok->name));
+		tok->name[sizeof(tok->name)-1] = 0;
+		clnode_splice(&toplevel, &tok->hdr);
+	}
+
+	for(cursor = clnode_next(&toplevel);
+	    cursor != &toplevel;
+	    cursor = clnode_next(&cursor)) {
+		token_t *tok = token_t *cursor;
+
 		for(j = 0; j < sizeof(builtins) / sizeof(builtins[0]); j++) {
-			if(strcmp(argv[i], builtins[j].name) == 0) {
+			if(strcmp(tok->name, builtins[j].name) == 0) {
 				status = builtins[j].fun(dstack, ARRLEN(dstack), &dstack_top);
 				if(status != FUN_OK) {
 					return status;
@@ -259,42 +283,50 @@ int main(int argc, char *argv[])
 				break;
 			}
 		}
-		if(j == sizeof(builtins) / sizeof(builtins[0])) {
-			char *strend;
-			double d;
-			long l;
 
-			if(dstack_top == ARRLEN(dstack)) {
-				// overflow
-				fprintf(stderr, "%s: stack overflow\n", argv[0]);
-				return -1;
-			}
-			
-			l = strtol(argv[i], &strend, 0);
-			if(strend == argv[i]) {
-				// no conversion
-				fprintf(stderr, "%s: unknown token: %s\n", argv[0], argv[i]);
-				return -1;
-			}
-			if(*strend) {
-				// incomplete conversion
-				goto try_double;
-			}
-			dstack[dstack_top].u.l = l;
-			dstack[dstack_top++].type = VAL_LONG;
-			continue;
+		if(j != ARRLEN(builtins)) continue;
+		
+		char *strend;
+		double d;
+		long l;
 
-			try_double:
-			d = strtod(argv[i], &strend);
-			if(*strend) {
-				// incomplete conversion
-				fprintf(stderr, "%s: unknown token: %s\n", argv[0], argv[i]);
-				return -1;
-			}
-
-			dstack[dstack_top].u.d = d;
-			dstack[dstack_top++].type = VAL_DOUBLE;
+		if(dstack_top == ARRLEN(dstack)) {
+			// overflow
+			fprintf(stderr, "%s: stack overflow\n", argv[0]);
+			return -1;
 		}
+			
+		l = strtol(argv[i], &strend, 0);
+		if(strend == argv[i]) {
+			// no conversion
+			fprintf(stderr, "%s: unknown token: %s\n", argv[0], argv[i]);
+			return -1;
+		}
+		if(*strend) {
+			// incomplete conversion
+			goto try_double;
+		}
+		dstack[dstack_top].u.l = l;
+		dstack[dstack_top++].type = VAL_LONG;
+		continue;
+
+		try_double:
+		d = strtod(argv[i], &strend);
+		if(*strend) {
+			// incomplete conversion
+			fprintf(stderr, "%s: unknown token: %s\n", argv[0], argv[i]);
+			return -1;
+		}
+
+		dstack[dstack_top].u.d = d;
+		dstack[dstack_top++].type = VAL_DOUBLE;
+	}
+
+
+	while(! clnode_singleton(&toplevel)) {
+		cursor = clnode_next(&toplevel);
+		clnode_remove(cursor);
+		free(cursor);
 	}
 	return 0;
 }
