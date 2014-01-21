@@ -248,14 +248,15 @@ int main(int argc, char *argv[])
 {
 	int i, j;
 	status_t status;
+	char *name = argv[0];
 
 	#define DSTACK_CAP 256
 	val_t dstack[DSTACK_CAP];
 	size_t dstack_top = 0;
 	
 	#define CSTACK_CAP 256
-	clnode_t cstack[CSTACK_CAP];
-	size_t cstack_top = 0;
+	clnode_t *cstack[CSTACK_CAP];
+	long cstack_top = -1;
 
 	clnode_t toplevel, *cursor;
 	clnode_init(&toplevel);
@@ -269,10 +270,11 @@ int main(int argc, char *argv[])
 		clnode_splice(&toplevel, &tok->hdr);
 	}
 
-	for(cursor = clnode_next(&toplevel);
-	    cursor != &toplevel;
-	    cursor = clnode_next(&cursor)) {
-		token_t *tok = token_t *cursor;
+	for(cstack[++cstack_top] = clnode_next(&toplevel);
+	    (cstack_top >= 0) && (cstack[cstack_top] != &toplevel);
+		cstack[cstack_top] = clnode_next(cstack[cstack_top])) {
+
+		token_t *tok = (token_t *) cstack[cstack_top];
 
 		for(j = 0; j < sizeof(builtins) / sizeof(builtins[0]); j++) {
 			if(strcmp(tok->name, builtins[j].name) == 0) {
@@ -292,14 +294,14 @@ int main(int argc, char *argv[])
 
 		if(dstack_top == ARRLEN(dstack)) {
 			// overflow
-			fprintf(stderr, "%s: stack overflow\n", argv[0]);
+			fprintf(stderr, "%s: stack overflow\n", name);
 			return -1;
 		}
 			
-		l = strtol(argv[i], &strend, 0);
-		if(strend == argv[i]) {
+		l = strtol(tok->name, &strend, 0);
+		if(strend == tok->name) {
 			// no conversion
-			fprintf(stderr, "%s: unknown token: %s\n", argv[0], argv[i]);
+			fprintf(stderr, "%s: unknown token: %s\n", name, tok->name);
 			return -1;
 		}
 		if(*strend) {
@@ -311,10 +313,10 @@ int main(int argc, char *argv[])
 		continue;
 
 		try_double:
-		d = strtod(argv[i], &strend);
+		d = strtod(tok->name, &strend);
 		if(*strend) {
 			// incomplete conversion
-			fprintf(stderr, "%s: unknown token: %s\n", argv[0], argv[i]);
+			fprintf(stderr, "%s: unknown token: %s\n", name, tok->name);
 			return -1;
 		}
 
