@@ -12,6 +12,12 @@ struct token {
 };
 typedef struct token token_t;
 
+struct filedata {
+	struct filedata *next;
+	struct token *data;
+};
+typedef struct filedata filedata_t;
+
 typedef enum {
 	VAL_LONG,
 	VAL_DOUBLE,
@@ -313,7 +319,9 @@ int main(int argc, char *argv[])
 	token_t *cstack[CSTACK_CAP];
 	long cstack_top = -1;
 
-	token_t *toplevel = NULL;
+	filedata_t *files = calloc(1, sizeof(filedata_t));
+	assert(files);
+	files->data = NULL;
 	token_t *tok_last = NULL;
 
 	for(i = 1; i < argc; i++) {
@@ -322,13 +330,13 @@ int main(int argc, char *argv[])
 		strncpy(tok->name, argv[i], sizeof(tok->name));
 		tok->name[sizeof(tok->name)-1] = 0;
 		if(tok_last == NULL) {
-			toplevel = tok_last = tok;
+			files->data = tok_last = tok;
 		} else {
 			tok_last = tok_last->next = tok;
 		}
 	}
 
-	for(cstack[++cstack_top] = toplevel;
+	for(cstack[++cstack_top] = files->data;
 	    cstack_top >= 0;
 		cstack[cstack_top] = cstack[cstack_top]->next) {
 
@@ -347,9 +355,15 @@ int main(int argc, char *argv[])
 		if(status != 0) break;
 	}
 
-	while(toplevel) {
-		token_t *old = toplevel;
-		toplevel = toplevel->next;
+	while(files) {
+		filedata_t *old;
+		while(files->data) {
+			token_t *old = files->data;
+			files->data = files->data->next;
+			free(old);
+		}
+		old = files;
+		files = files->next;
 		free(old);
 	}
 
