@@ -249,7 +249,7 @@ reset
 
 #define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
-int exec_token(token_t *tok, char *name,
+int exec_token(token_t *tok, char *name, filedata_t **files,
                val_t *dstack, long *dstack_top, size_t dstack_max,
                token_t **cstack, long *cstack_top, size_t cstack_max)
 {
@@ -349,7 +349,7 @@ int main(int argc, char *argv[])
 			break;
 		}
 
-		int status = exec_token(tok, name,
+		int status = exec_token(tok, name, &files,
                dstack, &dstack_top, ARRLEN(dstack),
                cstack, &cstack_top, ARRLEN(cstack));
 		if(status != 0) break;
