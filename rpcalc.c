@@ -5,13 +5,12 @@
 #include <assert.h>
 #include <string.h>
 
-#include "clnode.h"
-
 #define TOKLEN 64
-typedef struct {
-	clnode_t hdr;
+struct token {
+	struct token *next;
 	char name[TOKLEN];
-} token_t;
+};
+typedef struct token token_t;
 
 typedef enum {
 	VAL_LONG,
@@ -255,26 +254,35 @@ int main(int argc, char *argv[])
 	long dstack_top = -1;
 	
 	#define CSTACK_CAP 256
-	clnode_t *cstack[CSTACK_CAP];
+	token_t *cstack[CSTACK_CAP];
 	long cstack_top = -1;
 
-	clnode_t toplevel, *cursor;
-	clnode_init(&toplevel);
+	token_t *toplevel = NULL;
+	token_t *tok_last = NULL;
 
 	for(i = 1; i < argc; i++) {
-		token_t *tok = malloc(sizeof(token_t));
+		token_t *tok = calloc(1, sizeof(token_t));
 		assert(tok);
-		clnode_init(&tok->hdr);
 		strncpy(tok->name, argv[i], sizeof(tok->name));
 		tok->name[sizeof(tok->name)-1] = 0;
-		clnode_splice(&toplevel, &tok->hdr);
+		if(tok_last == NULL) {
+			toplevel = tok_last = tok;
+		} else {
+			tok_last = tok_last->next = tok;
+		}
 	}
 
-	for(cstack[++cstack_top] = clnode_next(&toplevel);
-	    (cstack_top >= 0) && (cstack[cstack_top] != &toplevel);
-		cstack[cstack_top] = clnode_next(cstack[cstack_top])) {
+	for(cstack[++cstack_top] = toplevel;
+	    (cstack_top >= 0);
+		cstack[cstack_top] = cstack[cstack_top]->next) {
 
 		token_t *tok = (token_t *) cstack[cstack_top];
+
+		if(!tok) {
+			if(! cstack_top) break;
+			cstack_top--;
+			continue;
+		}
 
 		for(j = 0; j < sizeof(builtins) / sizeof(builtins[0]); j++) {
 			if(strcmp(tok->name, builtins[j].name) == 0) {
@@ -324,11 +332,11 @@ int main(int argc, char *argv[])
 		dstack[dstack_top].type = VAL_DOUBLE;
 	}
 
-
-	while(! clnode_singleton(&toplevel)) {
-		cursor = clnode_next(&toplevel);
-		clnode_remove(cursor);
-		free(cursor);
+	while(toplevel) {
+		token_t *old = toplevel;
+		toplevel = toplevel->next;
+		free(old);
 	}
+
 	return 0;
 }
