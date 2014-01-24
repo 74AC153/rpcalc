@@ -6,6 +6,7 @@
 #include <string.h>
 
 #define TOKLEN 64
+#define TOKFMT "%64s"
 struct token {
 	struct token *next;
 	char name[TOKLEN];
@@ -17,6 +18,13 @@ struct filedata {
 	struct token *data;
 };
 typedef struct filedata filedata_t;
+
+struct macro {
+	struct macro *next;
+	char name[TOKLEN];
+	struct token *data;
+};
+typedef struct macro macro_t;
 
 typedef enum {
 	VAL_LONG,
@@ -37,7 +45,7 @@ typedef enum {
 	FUN_OVERFLOW,
 } status_t;
 
-typedef status_t (*fun_t)(val_t *stack, size_t stack_max, size_t *stack_top);
+typedef status_t (*fun_t)(val_t *stack, size_t stack_max, long *stack_top);
 
 #define STACK_OUTPUT_NEED(N) \
 	do { if(*stack_top == stack_max-(N)-1) return FUN_OVERFLOW; } while(0)
@@ -54,7 +62,7 @@ typedef status_t (*fun_t)(val_t *stack, size_t stack_max, size_t *stack_top);
 #define STACK_EMIT(N) \
 	do{ (*stack_top) += (N); return FUN_OK; } while(0)
 
-status_t fun_add(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_add(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(2);
 	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
@@ -70,13 +78,13 @@ status_t fun_add(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_CONSUME(1);
 }
 
-status_t fun_mult(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_mult(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(2);
 	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
 	if(type1 == type0) {
 		if(type1 == VAL_LONG) STACK_ARG(1).u.l *= STACK_ARG(0).u.l;
-		else STACK_ARG(1).u.d += STACK_ARG(0).u.d;
+		else STACK_ARG(1).u.d *= STACK_ARG(0).u.d;
 	} else {
 		if(type1 == VAL_LONG) STACK_ARG(1).u.d = STACK_ARG(1).u.l;
 		if(type0 == VAL_LONG) STACK_ARG(0).u.d = STACK_ARG(0).u.l;
@@ -86,21 +94,29 @@ status_t fun_mult(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_CONSUME(1);
 }
 
-status_t fun_neg(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_sub(val_t *stack, size_t stack_max, long *stack_top)
 {
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type == VAL_LONG) STACK_ARG(0).u.l *= -1;
-	else STACK_ARG(0).u.d *= -1.0;
-	STACK_CONSUME(0);
+	STACK_INPUT_NEED(2);
+	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
+	if(type1 == type0) {
+		if(type1 == VAL_LONG) STACK_ARG(1).u.l -= STACK_ARG(0).u.l;
+		else STACK_ARG(1).u.d -= STACK_ARG(0).u.d;
+	} else {
+		if(type1 == VAL_LONG) STACK_ARG(1).u.d = STACK_ARG(1).u.l;
+		if(type0 == VAL_LONG) STACK_ARG(0).u.d = STACK_ARG(0).u.l;
+		STACK_ARG(1).u.d -= STACK_ARG(0).u.d;
+		STACK_ARG(1).type = VAL_DOUBLE;
+	}
+	STACK_CONSUME(1);
 }
 
-status_t fun_div(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_div(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(2);
 	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
 	if(type1 == type0) {
 		if(type1 == VAL_LONG) STACK_ARG(1).u.l /= STACK_ARG(0).u.l;
-		else STACK_ARG(1).u.d += STACK_ARG(0).u.d;
+		else STACK_ARG(1).u.d /= STACK_ARG(0).u.d;
 	} else {
 		if(type1 == VAL_LONG) STACK_ARG(1).u.d = STACK_ARG(1).u.l;
 		if(type0 == VAL_LONG) STACK_ARG(0).u.d = STACK_ARG(0).u.l;
@@ -110,21 +126,21 @@ status_t fun_div(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_CONSUME(1);
 }
 
-status_t fun_ceil(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_ceil(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
 	if(STACK_ARG(0).type != VAL_LONG) STACK_ARG(0).u.d = ceil(STACK_ARG(0).u.d);
 	STACK_CONSUME(0);
 }
 
-status_t fun_floor(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_floor(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
 	if(STACK_ARG(0).type != VAL_LONG) STACK_ARG(0).u.d = floor(STACK_ARG(0).u.d);
 	STACK_CONSUME(0);
 }
 
-status_t fun_ln(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_ln(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
 	if(STACK_ARG(0).type == VAL_LONG) STACK_ARG(0).u.d = log(STACK_ARG(0).u.l);
@@ -133,7 +149,7 @@ status_t fun_ln(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_CONSUME(0);
 }
 
-status_t fun_exp(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_exp(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
 	if(STACK_ARG(0).type == VAL_LONG) STACK_ARG(0).u.d = exp(STACK_ARG(0).u.l);
@@ -142,7 +158,7 @@ status_t fun_exp(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_CONSUME(0);
 }
 
-status_t fun_push_pi(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_push_pi(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_OUTPUT_NEED(1);
 	STACK_ARG(-1).u.d = M_PI;
@@ -150,7 +166,7 @@ status_t fun_push_pi(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_EMIT(1);
 }
 
-status_t fun_swap(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_swap(val_t *stack, size_t stack_max, long *stack_top)
 {
 	val_t r;
 	STACK_INPUT_NEED(2);
@@ -160,13 +176,13 @@ status_t fun_swap(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_CONSUME(0);
 }
 
-status_t fun_drop(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_drop(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
 	STACK_CONSUME(1);
 }
 
-status_t fun_dup(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_dup(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
 	STACK_OUTPUT_NEED(1);
@@ -174,7 +190,7 @@ status_t fun_dup(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_EMIT(1);
 }
 
-status_t fun_rot(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_rot(val_t *stack, size_t stack_max, long *stack_top)
 {
 	val_t r;
 	STACK_INPUT_NEED(3);
@@ -185,13 +201,13 @@ status_t fun_rot(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_CONSUME(0);
 }
 
-status_t fun_clear(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_clear(val_t *stack, size_t stack_max, long *stack_top)
 {
 	*stack_top = 0;
 	STACK_CONSUME(0);
 }
 
-status_t fun_top(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_top(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
 	if(STACK_ARG(0).type == VAL_LONG) printf("%ld\n", STACK_ARG(0).u.l);
@@ -199,9 +215,9 @@ status_t fun_top(val_t *stack, size_t stack_max, size_t *stack_top)
 	STACK_CONSUME(0);
 }
 
-status_t fun_stack(val_t *stack, size_t stack_max, size_t *stack_top)
+status_t fun_stack(val_t *stack, size_t stack_max, long *stack_top)
 {
-	size_t i;
+	long i;
 	for(i = 0; i <= *stack_top; i++) {
 		if(stack[i].type == VAL_LONG) printf("%ld\n", stack[i].u.l);
 		else printf("%20.20f\n", stack[i].u.d);
@@ -212,7 +228,7 @@ status_t fun_stack(val_t *stack, size_t stack_max, size_t *stack_top)
 struct { char *name; fun_t fun; } builtins[] = {
 	{ "add", fun_add },
 	{ "mul", fun_mult },
-	{ "neg", fun_neg },
+	{ "sub", fun_sub },
 	{ "div", fun_div },
 	{ "ceil", fun_ceil },
 	{ "floor", fun_floor },
@@ -230,7 +246,7 @@ struct { char *name; fun_t fun; } builtins[] = {
 
 /* TODO:
 define new macro: :macro ... :
-load+exec file: [filename]
+load+exec file: ::filename
 goto: >name
 cond-goto: %name
 cond-call: ?name
@@ -247,9 +263,69 @@ clear
 reset
 */
 
+int tokenize_file(char *path, filedata_t **dat)
+{
+	FILE *infile = fopen(path, "r");
+	if(! infile) return -1;
+	char token[TOKLEN];
+	*dat = calloc(1, sizeof(filedata_t));
+	assert(dat);
+	token_t *last = NULL;
+	int status;
+
+	while( (status = fscanf(infile, TOKFMT, token)) > 0) {
+		token_t *tok = calloc(1, sizeof(token_t));
+		assert(tok);
+		strncpy(tok->name, token, sizeof(tok->name));
+		tok->name[sizeof(tok->name)-1] = 0;
+		if( last == NULL ) {
+			(*dat)->data = last = tok;
+		} else {
+			last->next = tok;
+			last = tok;
+		}
+	}
+
+	fclose(infile);
+	return 0;
+}
+
+int generate_macro(token_t *tok_in, macro_t **macros, token_t **tok_out)
+{
+	macro_t *newmac = calloc(1, sizeof(macro_t));
+	token_t *newtok, *cursor, *last = NULL;
+
+	strncpy(newmac->name, tok_in->name + 5, sizeof(newmac->name));
+
+	for(cursor = tok_in->next;
+	    cursor && strcmp(cursor->name, ":");
+	    cursor = cursor->next) {
+		newtok = calloc(1, sizeof(token_t));
+		assert(newtok);
+		memcpy(newtok, cursor, sizeof(*newtok));
+		newtok->next = NULL;
+		if(last == NULL) {
+			newmac->data = last = newtok;
+		} else {
+			last->next = newtok;
+			last = newtok;
+		}
+	}
+	if(! cursor) {
+		fprintf(stderr, "non-terminated macro definition!\n");
+		return -1;
+	}
+
+	*tok_out = cursor;
+	newmac->next = *macros;
+	*macros = newmac;
+	return 0;
+}
+
 #define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
 int exec_token(token_t *tok, char *name, filedata_t **files,
+               macro_t *macros,
                val_t *dstack, long *dstack_top, size_t dstack_max,
                token_t **cstack, long *cstack_top, size_t cstack_max)
 {
@@ -258,6 +334,28 @@ int exec_token(token_t *tok, char *name, filedata_t **files,
 	double d;
 	long l;
 	status_t status;
+
+	while(macros) {
+		if(strcmp(macros->name, tok->name) == 0) {
+			tok = cstack[++ (*cstack_top)] = macros->data;
+			break;
+		}
+		macros = macros->next;
+	}
+
+	if(tok->name[0] == ':') {
+		if(strncmp(tok->name, ":load:", 6) == 0) {
+			// read specified file and begin executing it
+			filedata_t *newdat;
+			int status = tokenize_file(tok->name+6, &newdat);
+			newdat->next = *files;
+			*files = newdat;
+			tok = cstack[++ (*cstack_top)] = newdat->data;
+		}
+		// TODO: jump to label
+		// TODO: conditional goto label
+		// TODO: conditional call
+	}
 
 	for(j = 0; j < ARRLEN(builtins); j++) {
 		if(strcmp(tok->name, builtins[j].name) == 0) {
@@ -268,7 +366,6 @@ int exec_token(token_t *tok, char *name, filedata_t **files,
 			break;
 		}
 	}
-
 	if(j != ARRLEN(builtins)) return 0;
 
 	if(*dstack_top == dstack_max) {
@@ -324,6 +421,8 @@ int main(int argc, char *argv[])
 	files->data = NULL;
 	token_t *tok_last = NULL;
 
+	macro_t *macros = NULL;
+
 	for(i = 1; i < argc; i++) {
 		token_t *tok = calloc(1, sizeof(token_t));
 		assert(tok);
@@ -342,16 +441,25 @@ int main(int argc, char *argv[])
 
 		token_t *tok = (token_t *) cstack[cstack_top];
 
+		// implicit return on end of token list
 		if(!tok) {
 			if(cstack_top) {
-				fprintf(stderr, "%s: unexpected end of program\n", name);
+				cstack_top--;
+				continue;
 			}
 			break;
 		}
 
-		int status = exec_token(tok, name, &files,
-               dstack, &dstack_top, ARRLEN(dstack),
-               cstack, &cstack_top, ARRLEN(cstack));
+		if(tok->name[0] == ':') {
+			if(strncmp(tok->name, ":def:", 5) == 0) {
+				generate_macro(tok, &macros, &cstack[cstack_top]);
+				continue;
+			}
+		}
+
+		int status = exec_token(tok, name, &files, macros,
+		                        dstack, &dstack_top, ARRLEN(dstack),
+		                        cstack, &cstack_top, ARRLEN(cstack));
 		if(status != 0) break;
 	}
 
