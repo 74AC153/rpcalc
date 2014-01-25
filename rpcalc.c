@@ -43,6 +43,7 @@ typedef enum {
 	FUN_OK,
 	FUN_UNDERFLOW,
 	FUN_OVERFLOW,
+	FUN_LONG_ARGS_ONLY,
 } status_t;
 
 typedef status_t (*fun_t)(val_t *stack, size_t stack_max, long *stack_top);
@@ -126,17 +127,40 @@ status_t fun_div(val_t *stack, size_t stack_max, long *stack_top)
 	STACK_CONSUME(1);
 }
 
+status_t fun_bit_nor(val_t *stack, size_t stack_max, long *stack_top)
+{
+	STACK_INPUT_NEED(2);
+	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
+	if(type1 != VAL_LONG || type1 != type0) {
+		fprintf(stderr, "bit_nor requires LONG\n");
+		return FUN_LONG_ARGS_ONLY;
+	}
+	STACK_ARG(1).u.l = ~( STACK_ARG(1).u.l | STACK_ARG(0).u.l );
+	STACK_CONSUME(1);
+}
+
+status_t fun_int(val_t *stack, size_t stack_max, long *stack_top)
+{
+	STACK_INPUT_NEED(1);
+	if(STACK_ARG(0).type != VAL_LONG)
+		STACK_ARG(0).u.l = STACK_ARG(0).u.d;
+	STACK_ARG(0).type = VAL_LONG;
+	STACK_CONSUME(0);
+}
+
 status_t fun_ceil(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type != VAL_LONG) STACK_ARG(0).u.d = ceil(STACK_ARG(0).u.d);
+	if(STACK_ARG(0).type != VAL_LONG)
+		STACK_ARG(0).u.d = ceil(STACK_ARG(0).u.d);
 	STACK_CONSUME(0);
 }
 
 status_t fun_floor(val_t *stack, size_t stack_max, long *stack_top)
 {
 	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type != VAL_LONG) STACK_ARG(0).u.d = floor(STACK_ARG(0).u.d);
+	if(STACK_ARG(0).type != VAL_LONG)
+		STACK_ARG(0).u.d = floor(STACK_ARG(0).u.d);
 	STACK_CONSUME(0);
 }
 
@@ -154,6 +178,15 @@ status_t fun_exp(val_t *stack, size_t stack_max, long *stack_top)
 	STACK_INPUT_NEED(1);
 	if(STACK_ARG(0).type == VAL_LONG) STACK_ARG(0).u.d = exp(STACK_ARG(0).u.l);
 	else STACK_ARG(0).u.d = exp(STACK_ARG(0).u.d);
+	STACK_ARG(0).type = VAL_DOUBLE;
+	STACK_CONSUME(0);
+}
+
+status_t fun_sin(val_t *stack, size_t stack_max, long *stack_top)
+{
+	STACK_INPUT_NEED(1);
+	if(STACK_ARG(0).type == VAL_LONG) STACK_ARG(0).u.d = sin(STACK_ARG(0).u.l);
+	else STACK_ARG(0).u.d = sin(STACK_ARG(0).u.d);
 	STACK_ARG(0).type = VAL_DOUBLE;
 	STACK_CONSUME(0);
 }
@@ -225,15 +258,68 @@ status_t fun_stack(val_t *stack, size_t stack_max, long *stack_top)
 	STACK_CONSUME(0);
 }
 
+status_t fun_height(val_t *stack, size_t stack_max, long *stack_top)
+{
+	STACK_OUTPUT_NEED(1);
+	STACK_ARG(-1).u.l = *stack_top;
+	STACK_EMIT(1);
+}
+
+status_t fun_lt_q(val_t *stack, size_t stack_max, long *stack_top)
+{
+	STACK_INPUT_NEED(2);
+	double x, y;
+
+	if(STACK_ARG(1).type == VAL_LONG) x = STACK_ARG(1).u.l;
+	else x = STACK_ARG(1).u.d;
+
+	if(STACK_ARG(0).type == VAL_LONG) y = STACK_ARG(0).u.l;
+	else y = STACK_ARG(0).u.d;
+
+	STACK_ARG(1).u.l = x < y;
+	STACK_ARG(1).type = VAL_LONG;
+
+	STACK_CONSUME(1);
+}
+
+status_t fun_inf_q(val_t *stack, size_t stack_max, long *stack_top)
+{
+	STACK_INPUT_NEED(1);
+	if(STACK_ARG(0).type != VAL_DOUBLE) STACK_ARG(0).u.l = 0;
+	STACK_ARG(0).u.l = isinf(STACK_ARG(0).u.d);
+	STACK_ARG(0).type = VAL_LONG;
+	STACK_EMIT(0);
+}
+
+status_t fun_nan_q(val_t *stack, size_t stack_max, long *stack_top)
+{
+	STACK_INPUT_NEED(1);
+	if(STACK_ARG(0).type != VAL_DOUBLE) STACK_ARG(0).u.l = 0;
+	STACK_ARG(0).u.l = isnan(STACK_ARG(0).u.d);
+	STACK_ARG(0).type = VAL_LONG;
+	STACK_EMIT(0);
+}
+
+status_t fun_int_q(val_t *stack, size_t stack_max, long *stack_top)
+{
+	STACK_INPUT_NEED(1);
+	STACK_ARG(0).u.l = STACK_ARG(0).type == VAL_LONG;
+	STACK_ARG(0).type = VAL_LONG;
+	STACK_EMIT(0);
+}
+
 struct { char *name; fun_t fun; } builtins[] = {
 	{ "add", fun_add },
 	{ "mul", fun_mult },
 	{ "sub", fun_sub },
 	{ "div", fun_div },
+	{ "bit-nor", fun_bit_nor },
+	{ "int", fun_int },
 	{ "ceil", fun_ceil },
 	{ "floor", fun_floor },
 	{ "ln", fun_ln },
 	{ "exp", fun_exp },
+	{ "sin", fun_sin },
 	{ "_pi", fun_push_pi },
 	{ "swap", fun_swap },
 	{ "drop", fun_drop },
@@ -242,6 +328,11 @@ struct { char *name; fun_t fun; } builtins[] = {
 	{ "clear", fun_clear },
 	{ "top", fun_top },
 	{ "stack", fun_stack },
+	{ "height", fun_height },
+	{ "lt?", fun_lt_q },
+	{ "inf?", fun_inf_q },
+	{ "nan?", fun_nan_q },
+	{ "int?", fun_int_q },
 };
 
 /* TODO:
@@ -324,7 +415,7 @@ int generate_macro(token_t *tok_in, macro_t **macros, token_t **tok_out)
 
 #define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
-int exec_token(token_t *tok, char *name, filedata_t **files,
+int exec_token(token_t *tok, char *progname, filedata_t **files,
                macro_t *macros,
                val_t *dstack, long *dstack_top, size_t dstack_max,
                token_t **cstack, long *cstack_top, size_t cstack_max)
@@ -334,59 +425,40 @@ int exec_token(token_t *tok, char *name, filedata_t **files,
 	double d;
 	long l;
 	status_t status;
+	char *name = tok->name;
+	bool jump_only = false;
 
 restart:
 
-	// conditional goto
-	if(tok->name[0] == '%') {
-		if(*dstack_top >= 0 && dstack[(*dstack_top)--].u.l != 0) {
-			while(macros) {
-				if(strcmp(macros->name, tok->name+1) == 0) {
-					tok = cstack[*cstack_top] = macros->data;
-					goto restart;
-				}
-				macros = macros->next;
-			}
+	// conditional
+	if(name[0] == '?') {
+		if(*dstack_top >= 0 && dstack[(*dstack_top)--].u.l == 0) {
+			return 0;
 		}
-		return 0;
+		name++;
 	}
 
-	// unconditional goto
-	if(tok->name[0] == '/') {
-		while(macros) {
-			if(strcmp(macros->name, tok->name+1) == 0) {
-				tok = cstack[*cstack_top] = macros->data;
-				goto restart;
-			}
-			macros = macros->next;
-		}
+	if(name[0] == '/') {
+		jump_only = true;
+		name++;
 	}
 
-	// conditional macro call
-	if(tok->name[0] == '?') {
-		if(*dstack_top >= 0 && dstack[(*dstack_top)--].u.l != 0) {
-			while(macros) {
-				if(strcmp(macros->name, tok->name+1) == 0) {
-					tok = cstack[++ (*cstack_top)] = macros->data;
-					goto restart;
-				}
-				macros = macros->next;
-			}
-		}
-		return 0;
-	}
-
-	// uncondictional macro call
+	// macro call / goto
 	while(macros) {
-		if(strcmp(macros->name, tok->name) == 0) {
-			tok = cstack[++ (*cstack_top)] = macros->data;
+		if(strcmp(macros->name, name) == 0) {
+			*cstack_top += !jump_only;
+			tok = cstack[*cstack_top] = macros->data;
 			goto restart;
 		}
 		macros = macros->next;
 	}
+	if(jump_only) {
+		fprintf(stderr, "%s: unknown jump target: %s\n", progname, name);
+		return -1;
+	}
 
-	if(strncmp(tok->name, ":load:", 6) == 0) {
-		// read specified file and begin executing it
+	// read specified file and begin executing it
+	if(strncmp(name, ":load:", 6) == 0) {
 		filedata_t *newdat;
 		int status = tokenize_file(tok->name+6, &newdat);
 		newdat->next = *files;
@@ -395,8 +467,14 @@ restart:
 		goto restart;
 	}
 
+	if(strcmp(name, ":ret:") == 0) {
+		tok = cstack[-- (*cstack_top)];
+		goto restart;
+	}
+
+	// builtin
 	for(j = 0; j < ARRLEN(builtins); j++) {
-		if(strcmp(tok->name, builtins[j].name) == 0) {
+		if(strcmp(name, builtins[j].name) == 0) {
 			status = builtins[j].fun(dstack, ARRLEN(dstack), dstack_top);
 			if(status != FUN_OK) {
 				return status;
@@ -406,16 +484,17 @@ restart:
 	}
 	if(j != ARRLEN(builtins)) return 0;
 
+	// value
 	if(*dstack_top == (long) dstack_max) {
 		// overflow
-		fprintf(stderr, "%s: stack overflow\n", name);
+		fprintf(stderr, "%s: stack overflow\n", progname);
 		return -1;
 	}
 		
-	l = strtol(tok->name, &strend, 0);
+	l = strtol(name, &strend, 0);
 	if(strend == tok->name) {
 		// no conversion
-		fprintf(stderr, "%s: unknown token: %s\n", name, tok->name);
+		fprintf(stderr, "%s: unknown token: %s\n", progname, tok->name);
 		return -1;
 	}
 	if(*strend) {
@@ -427,10 +506,10 @@ restart:
 	return 0;
 
 	try_double:
-	d = strtod(tok->name, &strend);
+	d = strtod(name, &strend);
 	if(*strend) {
 		// incomplete conversion
-		fprintf(stderr, "%s: unknown token: %s\n", name, tok->name);
+		fprintf(stderr, "%s: unknown token: %s\n", progname, tok->name);
 		return -1;
 	}
 
