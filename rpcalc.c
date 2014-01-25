@@ -48,7 +48,7 @@ typedef enum {
 typedef status_t (*fun_t)(val_t *stack, size_t stack_max, long *stack_top);
 
 #define STACK_OUTPUT_NEED(N) \
-	do { if(*stack_top == stack_max-(N)-1) return FUN_OVERFLOW; } while(0)
+	do { if(*stack_top == (long)stack_max-(N)-1) return FUN_OVERFLOW; } while(0)
 
 #define STACK_INPUT_NEED(N) \
 	do { if(*stack_top < (N)-1) return FUN_UNDERFLOW; } while(0)
@@ -335,26 +335,64 @@ int exec_token(token_t *tok, char *name, filedata_t **files,
 	long l;
 	status_t status;
 
+restart:
+
+	// conditional goto
+	if(tok->name[0] == '%') {
+		if(*dstack_top >= 0 && dstack[(*dstack_top)--].u.l != 0) {
+			while(macros) {
+				if(strcmp(macros->name, tok->name+1) == 0) {
+					tok = cstack[*cstack_top] = macros->data;
+					goto restart;
+				}
+				macros = macros->next;
+			}
+		}
+		return 0;
+	}
+
+	// unconditional goto
+	if(tok->name[0] == '/') {
+		while(macros) {
+			if(strcmp(macros->name, tok->name+1) == 0) {
+				tok = cstack[*cstack_top] = macros->data;
+				goto restart;
+			}
+			macros = macros->next;
+		}
+	}
+
+	// conditional macro call
+	if(tok->name[0] == '?') {
+		if(*dstack_top >= 0 && dstack[(*dstack_top)--].u.l != 0) {
+			while(macros) {
+				if(strcmp(macros->name, tok->name+1) == 0) {
+					tok = cstack[++ (*cstack_top)] = macros->data;
+					goto restart;
+				}
+				macros = macros->next;
+			}
+		}
+		return 0;
+	}
+
+	// uncondictional macro call
 	while(macros) {
 		if(strcmp(macros->name, tok->name) == 0) {
 			tok = cstack[++ (*cstack_top)] = macros->data;
-			break;
+			goto restart;
 		}
 		macros = macros->next;
 	}
 
-	if(tok->name[0] == ':') {
-		if(strncmp(tok->name, ":load:", 6) == 0) {
-			// read specified file and begin executing it
-			filedata_t *newdat;
-			int status = tokenize_file(tok->name+6, &newdat);
-			newdat->next = *files;
-			*files = newdat;
-			tok = cstack[++ (*cstack_top)] = newdat->data;
-		}
-		// TODO: jump to label
-		// TODO: conditional goto label
-		// TODO: conditional call
+	if(strncmp(tok->name, ":load:", 6) == 0) {
+		// read specified file and begin executing it
+		filedata_t *newdat;
+		int status = tokenize_file(tok->name+6, &newdat);
+		newdat->next = *files;
+		*files = newdat;
+		tok = cstack[++ (*cstack_top)] = newdat->data;
+		goto restart;
 	}
 
 	for(j = 0; j < ARRLEN(builtins); j++) {
@@ -368,7 +406,7 @@ int exec_token(token_t *tok, char *name, filedata_t **files,
 	}
 	if(j != ARRLEN(builtins)) return 0;
 
-	if(*dstack_top == dstack_max) {
+	if(*dstack_top == (long) dstack_max) {
 		// overflow
 		fprintf(stderr, "%s: stack overflow\n", name);
 		return -1;
