@@ -388,13 +388,10 @@ void tokenize_argv(int argc, char *argv[], filedata_t **files)
 	*files = newfile;
 }
 
-int tokenize_file(char *path, filedata_t **dat)
+void tokenize_buf(char *data, size_t len, filedata_t **dat)
 {
-	char *data, *start, *end;
-	size_t len;
+	char *start, *end;
 	token_t *last = NULL;
-	int status = read_file(path, &data, &len);
-	if(status < 0) return status;
 
 	*dat = calloc(1, sizeof(filedata_t));
 	assert(*dat);
@@ -423,7 +420,15 @@ int tokenize_file(char *path, filedata_t **dat)
 			}
 		}
 	}
+}
 
+int tokenize_file(char *path, filedata_t **dat)
+{
+	char *data;
+	size_t len;
+	int status = read_file(path, &data, &len);
+	if(status < 0) return status;
+	tokenize_buf(data, len, dat);
 	return 0;
 }
 
