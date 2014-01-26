@@ -86,16 +86,18 @@ void tokenize_buf(char *data, size_t len, filedata_t **dat)
 	(*dat)->buf = data;
 	(*dat)->buflen = len;
 	
-	for(start = data; (start-data) < len; start = end) {
+	for(start = data; (size_t) (start-data) < len; start = end) {
 		if(isspace(*start)) {
 			// skip whitespace
 			end = start+1;
 		} else if(*start == '#') {
 			// skip comments
-			for(end = start; (end-data) < len && *end != '\n'; end++);
+			for(end = start; (size_t) (end-data) < len && *end != '\n'; end++);
 		} else {
 			// find end of string segment
-			for(end = start; (end-data) < len && ! isspace(*end); end++);
+			for(end = start;
+			    (size_t) (end-data) < len && !isspace(*end);
+			    end++);
 			*end++ = 0;
 			token_t *tok = calloc(1, sizeof(token_t));
 			assert(tok);

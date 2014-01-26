@@ -41,7 +41,8 @@ int load_wrapper(char *path, ldwrap_ent_t **funs)
 
 	dl_hdl = dlopen(path, RTLD_LAZY);
 	if(! dl_hdl) {
-		fprintf(stderr, "error: dlopen() failed: %s\n", dlerror());
+		fprintf(stderr, "load_wrapper error: dlopen() failed: %s\n",
+		        dlerror());
 		return -1;
 	}
 
@@ -51,7 +52,7 @@ int load_wrapper(char *path, ldwrap_ent_t **funs)
 	         "%s_%s", name, load_wrapper_names_ident);
 	fun_names = dlsym(dl_hdl, names_ident);
 	if(! fun_names) {
-		fprintf(stderr, "dlsym(%s) failed: %s\n",
+		fprintf(stderr, "load_wrapper dlsym(%s) failed: %s\n",
 		        names_ident, dlerror());
 		return -1;
 	}
@@ -62,14 +63,14 @@ int load_wrapper(char *path, ldwrap_ent_t **funs)
 	         "%s_%s", name, load_wrapper_count_ident);
 	fun_count = dlsym(dl_hdl, count_ident);
 	if(! fun_count) {
-		fprintf(stderr, "dlsym(%s) failed: %s\n",
+		fprintf(stderr, "load_wrapper dlsym(%s) failed: %s\n",
 		        count_ident, dlerror());
 		return -1;
 	}
 
 	*funs = malloc((*fun_count + 1) * sizeof((*funs)[0]));
 	if(! *funs) {
-		fprintf(stderr, "malloc() failed\n");
+		fprintf(stderr, "load_wrapper malloc() failed\n");
 		return -1;
 	}
 
