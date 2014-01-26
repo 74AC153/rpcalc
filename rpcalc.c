@@ -4,18 +4,26 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <ctype.h>
+
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define TOKLEN 64
 #define TOKFMT "%64s"
 struct token {
 	struct token *next;
-	char name[TOKLEN];
+	//char name[TOKLEN];
+	char *name;
 };
 typedef struct token token_t;
 
 struct filedata {
 	struct filedata *next;
 	struct token *data;
+	char *buf;
+	size_t buflen;
 };
 typedef struct filedata filedata_t;
 
@@ -335,40 +343,52 @@ struct { char *name; fun_t fun; } builtins[] = {
 	{ "int?", fun_int_q },
 };
 
-/* TODO:
-define new macro: :macro ... :
-load+exec file: ::filename
-goto: >name
-cond-goto: %name
-cond-call: ?name
-ret
+int read_file(char *path, char **data, size_t *len)
+{
+	struct stat sb;
+	int fd;
 
-integer types
-int command
-bit shifts
+	if((fd = open(path, O_RDONLY)) < 0) return -1;
+	if(fstat(fd, &sb) < 0) return -2;
+	if((*data = malloc(*len = sb.st_size)) == NULL) return -3;
+	if(read(fd, *data, sb.st_size) != sb.st_size) return -4;
 
-!hex mode
-!dec mode
-
-clear
-reset
-*/
+	close(fd);
+	return 0;
+}
 
 int tokenize_file(char *path, filedata_t **dat)
 {
-	FILE *infile = fopen(path, "r");
-	if(! infile) return -1;
-	char token[TOKLEN];
-	*dat = calloc(1, sizeof(filedata_t));
-	assert(dat);
+	char *data, *start, *end;
+	size_t len;
 	token_t *last = NULL;
-	int status;
+	int status = read_file(path, &data, &len);
+	if(status < 0) return status;
 
-	while( (status = fscanf(infile, TOKFMT, token)) > 0) {
+	*dat = calloc(1, sizeof(filedata_t));
+	assert(*dat);
+	(*dat)->buf = data;
+	(*dat)->buflen = len;
+	
+	for(start = data; (start-data) < len; start = end) {
+		// skip whitespace
+		if(isspace(*start)) {
+			end = start+1;
+			continue;
+		}
+		
+		// skip comments
+		if(*start == '#') {
+			for(end = start; (end-data) < len && *end != '\n'; end++);
+			continue;
+		}
+
+		// find end of string segment
+		for(end = start; (end-data) < len && ! isspace(*end); end++);
+		*end++ = 0;
 		token_t *tok = calloc(1, sizeof(token_t));
 		assert(tok);
-		strncpy(tok->name, token, sizeof(tok->name));
-		tok->name[sizeof(tok->name)-1] = 0;
+		tok->name = start;
 		if( last == NULL ) {
 			(*dat)->data = last = tok;
 		} else {
@@ -377,7 +397,6 @@ int tokenize_file(char *path, filedata_t **dat)
 		}
 	}
 
-	fclose(infile);
 	return 0;
 }
 
@@ -406,6 +425,7 @@ int generate_macro(token_t *tok_in, macro_t **macros, token_t **tok_out)
 		fprintf(stderr, "non-terminated macro definition!\n");
 		return -1;
 	}
+	cursor = cursor->next;
 
 	*tok_out = cursor;
 	newmac->next = *macros;
@@ -425,10 +445,10 @@ int exec_token(token_t *tok, char *progname, filedata_t **files,
 	double d;
 	long l;
 	status_t status;
-	char *name = tok->name;
+	char *name;
 	bool jump_only = false;
 
-restart:
+	name = tok->name;
 
 	// conditional
 	if(name[0] == '?') {
@@ -448,7 +468,7 @@ restart:
 		if(strcmp(macros->name, name) == 0) {
 			*cstack_top += !jump_only;
 			tok = cstack[*cstack_top] = macros->data;
-			goto restart;
+			return 0;
 		}
 		macros = macros->next;
 	}
@@ -464,12 +484,12 @@ restart:
 		newdat->next = *files;
 		*files = newdat;
 		tok = cstack[++ (*cstack_top)] = newdat->data;
-		goto restart;
+		return 0;
 	}
 
 	if(strcmp(name, ":ret:") == 0) {
 		tok = cstack[-- (*cstack_top)];
-		goto restart;
+		return 1;
 	}
 
 	// builtin
@@ -482,7 +502,7 @@ restart:
 			break;
 		}
 	}
-	if(j != ARRLEN(builtins)) return 0;
+	if(j != ARRLEN(builtins)) return 1;
 
 	// value
 	if(*dstack_top == (long) dstack_max) {
@@ -503,7 +523,7 @@ restart:
 	}
 	dstack[++(*dstack_top)].u.l = l;
 	dstack[*dstack_top].type = VAL_LONG;
-	return 0;
+	return 1;
 
 	try_double:
 	d = strtod(name, &strend);
@@ -516,7 +536,7 @@ restart:
 	dstack[++(*dstack_top)].u.d = d;
 	dstack[*dstack_top].type = VAL_DOUBLE;
 
-	return 0;
+	return 1;
 }
 
 int main(int argc, char *argv[])
@@ -543,8 +563,7 @@ int main(int argc, char *argv[])
 	for(i = 1; i < argc; i++) {
 		token_t *tok = calloc(1, sizeof(token_t));
 		assert(tok);
-		strncpy(tok->name, argv[i], sizeof(tok->name));
-		tok->name[sizeof(tok->name)-1] = 0;
+		tok->name = argv[i];
 		if(tok_last == NULL) {
 			files->data = tok_last = tok;
 		} else {
@@ -554,7 +573,7 @@ int main(int argc, char *argv[])
 
 	for(cstack[++cstack_top] = files->data;
 	    cstack_top >= 0;
-		cstack[cstack_top] = cstack[cstack_top]->next) {
+		) {
 
 		token_t *tok = (token_t *) cstack[cstack_top];
 
@@ -562,6 +581,7 @@ int main(int argc, char *argv[])
 		if(!tok) {
 			if(cstack_top) {
 				cstack_top--;
+				cstack[cstack_top] = cstack[cstack_top]->next;
 				continue;
 			}
 			break;
@@ -577,7 +597,10 @@ int main(int argc, char *argv[])
 		int status = exec_token(tok, name, &files, macros,
 		                        dstack, &dstack_top, ARRLEN(dstack),
 		                        cstack, &cstack_top, ARRLEN(cstack));
-		if(status != 0) break;
+		if(status < 0) break;
+		if(status == 0) continue;
+
+		cstack[cstack_top] = cstack[cstack_top]->next;
 	}
 
 	while(files) {
@@ -589,6 +612,7 @@ int main(int argc, char *argv[])
 		}
 		old = files;
 		files = files->next;
+		free(old->buf);
 		free(old);
 	}
 
