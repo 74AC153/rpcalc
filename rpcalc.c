@@ -357,6 +357,31 @@ int read_file(char *path, char **data, size_t *len)
 	return 0;
 }
 
+void tokenize_argv(int argc, char *argv[], filedata_t **files)
+{
+	int i;
+	token_t *tok_last = NULL;
+	filedata_t *newfile = calloc(1, sizeof(filedata_t));
+	assert(files);
+	(newfile)->data = NULL;
+	(newfile)->buf = NULL;
+	(newfile)->buflen = 0;
+
+	for(i = 1; i < argc; i++) {
+		token_t *tok = calloc(1, sizeof(token_t));
+		assert(tok);
+		tok->name = argv[i];
+		if(tok_last == NULL) {
+			newfile->data = tok_last = tok;
+		} else {
+			tok_last = tok_last->next = tok;
+		}
+	}
+
+	newfile->next = *files;
+	*files = newfile;
+}
+
 int tokenize_file(char *path, filedata_t **dat)
 {
 	char *data, *start, *end;
@@ -371,29 +396,25 @@ int tokenize_file(char *path, filedata_t **dat)
 	(*dat)->buflen = len;
 	
 	for(start = data; (start-data) < len; start = end) {
-		// skip whitespace
 		if(isspace(*start)) {
+			// skip whitespace
 			end = start+1;
-			continue;
-		}
-		
-		// skip comments
-		if(*start == '#') {
+		} else if(*start == '#') {
+			// skip comments
 			for(end = start; (end-data) < len && *end != '\n'; end++);
-			continue;
-		}
-
-		// find end of string segment
-		for(end = start; (end-data) < len && ! isspace(*end); end++);
-		*end++ = 0;
-		token_t *tok = calloc(1, sizeof(token_t));
-		assert(tok);
-		tok->name = start;
-		if( last == NULL ) {
-			(*dat)->data = last = tok;
 		} else {
-			last->next = tok;
-			last = tok;
+			// find end of string segment
+			for(end = start; (end-data) < len && ! isspace(*end); end++);
+			*end++ = 0;
+			token_t *tok = calloc(1, sizeof(token_t));
+			assert(tok);
+			tok->name = start;
+			if( last == NULL ) {
+				(*dat)->data = last = tok;
+			} else {
+				last->next = tok;
+				last = tok;
+			}
 		}
 	}
 
@@ -477,21 +498,6 @@ int exec_token(token_t *tok, char *progname, filedata_t **files,
 		return -1;
 	}
 
-	// read specified file and begin executing it
-	if(strncmp(name, ":load:", 6) == 0) {
-		filedata_t *newdat;
-		int status = tokenize_file(tok->name+6, &newdat);
-		newdat->next = *files;
-		*files = newdat;
-		tok = cstack[++ (*cstack_top)] = newdat->data;
-		return 0;
-	}
-
-	if(strcmp(name, ":ret:") == 0) {
-		tok = cstack[-- (*cstack_top)];
-		return 1;
-	}
-
 	// builtin
 	for(j = 0; j < ARRLEN(builtins); j++) {
 		if(strcmp(name, builtins[j].name) == 0) {
@@ -553,28 +559,14 @@ int main(int argc, char *argv[])
 	token_t *cstack[CSTACK_CAP];
 	long cstack_top = -1;
 
-	filedata_t *files = calloc(1, sizeof(filedata_t));
-	assert(files);
-	files->data = NULL;
-	token_t *tok_last = NULL;
-
 	macro_t *macros = NULL;
+	filedata_t *files = NULL;
 
-	for(i = 1; i < argc; i++) {
-		token_t *tok = calloc(1, sizeof(token_t));
-		assert(tok);
-		tok->name = argv[i];
-		if(tok_last == NULL) {
-			files->data = tok_last = tok;
-		} else {
-			tok_last = tok_last->next = tok;
-		}
-	}
+	tokenize_argv(argc, argv, &files);
 
-	for(cstack[++cstack_top] = files->data;
-	    cstack_top >= 0;
-		) {
+	cstack[++cstack_top] = files->data;
 
+	while(cstack_top >= 0) {
 		token_t *tok = (token_t *) cstack[cstack_top];
 
 		// implicit return on end of token list
@@ -589,9 +581,21 @@ int main(int argc, char *argv[])
 
 		if(tok->name[0] == ':') {
 			if(strncmp(tok->name, ":def:", 5) == 0) {
+				// macro definition
 				generate_macro(tok, &macros, &cstack[cstack_top]);
-				continue;
+			} else if(strncmp(name, ":load:", 6) == 0) {
+				// file load
+				filedata_t *newfile;
+				int status = tokenize_file(tok->name+6, &newfile);
+				newfile->next = files;
+				files = newfile;
+				tok = cstack[++ (*cstack_top)] = newfile->data;
+			} else if(strcmp(name, ":ret:") == 0) {
+				// return from macro
+				cstack_top--;
+				cstack[cstack_top] = cstack[cstack_top]->next;
 			}
+			continue;
 		}
 
 		int status = exec_token(tok, name, &files, macros,
