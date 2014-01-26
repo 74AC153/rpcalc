@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
 struct token {
 	struct token *next;
@@ -51,6 +52,7 @@ struct macro {
 	struct macro *next;
 	char *name;
 	struct token *data;
+	builtin_t fun;
 };
 typedef struct macro macro_t;
 
@@ -315,7 +317,12 @@ status_t fun_int_q(val_t *stack, size_t stack_max, long *stack_top)
 	STACK_EMIT(0);
 }
 
-struct { char *name; builtin_t fun; } builtins[] = {
+typedef struct {
+	char *name;
+	builtin_t fun;
+} builtin_ent_t;
+
+builtin_ent_t builtins[] = {
 	{ "add", fun_add },
 	{ "mul", fun_mult },
 	{ "sub", fun_sub },
@@ -341,8 +348,6 @@ struct { char *name; builtin_t fun; } builtins[] = {
 	{ "nan?", fun_nan_q },
 	{ "int?", fun_int_q },
 };
-
-
 
 int read_file(char *path, char **data, size_t *len)
 {
@@ -422,22 +427,33 @@ int tokenize_file(char *path, filedata_t **dat)
 	return 0;
 }
 
-int generate_macro(token_t *tok_in, macro_t **macros, token_t **tok_out)
+void add_macro(macro_t **macros, char *name, token_t *tokens, builtin_t fun)
 {
 	macro_t *newmac = calloc(1, sizeof(macro_t));
-	token_t *newtok, *cursor, *last = NULL;
+	assert(newmac);
+	newmac->name = name;
+	newmac->data = tokens;
+	newmac->fun = fun;
 
-	newmac->name = tok_in->name + 5;
+	newmac->next = *macros;
+	*macros = newmac;
+}
+
+int generate_macro(token_t *tok_in, macro_t **macros, token_t **tok_out)
+{
+	token_t *first, *last = NULL, *newtok, *cursor;
+	char *name = tok_in->name + 5;
 
 	for(cursor = tok_in->next;
 	    cursor && strcmp(cursor->name, ":");
 	    cursor = cursor->next) {
+
 		newtok = calloc(1, sizeof(token_t));
 		assert(newtok);
 		memcpy(newtok, cursor, sizeof(*newtok));
 		newtok->next = NULL;
 		if(last == NULL) {
-			newmac->data = last = newtok;
+			first = last = newtok;
 		} else {
 			last->next = newtok;
 			last = newtok;
@@ -448,68 +464,28 @@ int generate_macro(token_t *tok_in, macro_t **macros, token_t **tok_out)
 		return -1;
 	}
 	cursor = cursor->next;
-
+	add_macro(macros, name, first, NULL);
 	*tok_out = cursor;
-	newmac->next = *macros;
-	*macros = newmac;
 	return 0;
 }
 
-#define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
-int exec_token(token_t *tok, char *progname, filedata_t **files,
+macro_t *find_macro(macro_t *macros, char *name)
+{
+	for(; macros; macros = macros->next) {
+		if(strcmp(macros->name, name) == 0) break;
+	}
+	return macros;
+}
+
+int push_value(char *name, char *progname, filedata_t **files,
                macro_t *macros,
                val_t *dstack, long *dstack_top, size_t dstack_max,
                token_t **cstack, long *cstack_top, size_t cstack_max)
 {
-	size_t j;
 	char *strend;
 	double d;
 	long l;
-	status_t status;
-	char *name;
-	bool jump_only = false;
-
-	name = tok->name;
-
-	// conditional
-	if(name[0] == '?') {
-		if(*dstack_top >= 0 && dstack[(*dstack_top)--].u.l == 0) {
-			return 0;
-		}
-		name++;
-	}
-
-	if(name[0] == '/') {
-		jump_only = true;
-		name++;
-	}
-
-	// macro call / goto
-	while(macros) {
-		if(strcmp(macros->name, name) == 0) {
-			*cstack_top += !jump_only;
-			tok = cstack[*cstack_top] = macros->data;
-			return 0;
-		}
-		macros = macros->next;
-	}
-	if(jump_only) {
-		fprintf(stderr, "%s: unknown jump target: %s\n", progname, name);
-		return -1;
-	}
-
-	// builtin
-	for(j = 0; j < ARRLEN(builtins); j++) {
-		if(strcmp(name, builtins[j].name) == 0) {
-			status = builtins[j].fun(dstack, ARRLEN(dstack), dstack_top);
-			if(status != FUN_OK) {
-				return status;
-			}
-			break;
-		}
-	}
-	if(j != ARRLEN(builtins)) return 1;
 
 	// value
 	if(*dstack_top == (long) dstack_max) {
@@ -519,31 +495,28 @@ int exec_token(token_t *tok, char *progname, filedata_t **files,
 	}
 		
 	l = strtol(name, &strend, 0);
-	if(strend == tok->name) {
+	if(strend == name) {
 		// no conversion
-		fprintf(stderr, "%s: unknown token: %s\n", progname, tok->name);
+		fprintf(stderr, "%s: unknown token: %s\n", progname, name);
 		return -1;
 	}
-	if(*strend) {
-		// incomplete conversion
-		goto try_double;
+	if(*strend == 0) {
+		dstack[++(*dstack_top)].u.l = l;
+		dstack[*dstack_top].type = VAL_LONG;
+		return 0;
 	}
-	dstack[++(*dstack_top)].u.l = l;
-	dstack[*dstack_top].type = VAL_LONG;
-	return 1;
 
-	try_double:
 	d = strtod(name, &strend);
-	if(*strend) {
+	if(*strend == 0) {
+		dstack[++(*dstack_top)].u.d = d;
+		dstack[*dstack_top].type = VAL_DOUBLE;
+	} else {
 		// incomplete conversion
-		fprintf(stderr, "%s: unknown token: %s\n", progname, tok->name);
+		fprintf(stderr, "%s: unknown token: %s\n", progname, name);
 		return -1;
 	}
 
-	dstack[++(*dstack_top)].u.d = d;
-	dstack[*dstack_top].type = VAL_DOUBLE;
-
-	return 1;
+	return 0;
 }
 
 int main(int argc, char *argv[])
@@ -563,12 +536,18 @@ int main(int argc, char *argv[])
 	macro_t *macros = NULL;
 	filedata_t *files = NULL;
 
+	for(i = 0; i < ARRLEN(builtins); i++) {
+		add_macro(&macros, builtins[i].name, NULL, builtins[i].fun);
+	}
+
 	tokenize_argv(argc, argv, &files);
 
 	cstack[++cstack_top] = files->data;
 
 	while(cstack_top >= 0) {
 		token_t *tok = (token_t *) cstack[cstack_top];
+		bool jump_only = false;
+		macro_t *macro;
 
 		// implicit return on end of token list
 		if(!tok) {
@@ -580,30 +559,65 @@ int main(int argc, char *argv[])
 			break;
 		}
 
-		if(tok->name[0] == ':') {
-			if(strncmp(tok->name, ":def:", 5) == 0) {
+		char *name = tok->name;
+
+		// conditional
+		if(name[0] == '?') {
+			if(dstack_top >= 0 && dstack[dstack_top].u.l == 0) {
+				cstack[cstack_top] = cstack[cstack_top]->next;
+				continue;
+			}
+			name++;
+		}
+
+		// interpreter-specific
+		if(name[0] == ':') {
+			if(strncmp(name, ":def:", 5) == 0) {
 				// macro definition
 				generate_macro(tok, &macros, &cstack[cstack_top]);
-			} else if(strncmp(tok->name, ":load:", 6) == 0) {
+			} else if(strncmp(name, ":load:", 6) == 0) {
 				// file load
 				filedata_t *newfile;
-				int status = tokenize_file(tok->name+6, &newfile);
+				int status = tokenize_file(name+6, &newfile);
 				newfile->next = files;
 				files = newfile;
 				tok = cstack[++ cstack_top] = newfile->data;
-			} else if(strcmp(tok->name, ":ret:") == 0) {
-				// return from macro
-				cstack_top--;
-				cstack[cstack_top] = cstack[cstack_top]->next;
+			} else {
+				fprintf(stderr, "%s: unknown directive: %s\n", progname, name);
+				break;
 			}
 			continue;
 		}
 
-		int status = exec_token(tok, progname, &files, macros,
+		// macro / goto
+		if(name[0] == '/') {
+			jump_only = true;
+			name++;
+		}
+		if((macro = find_macro(macros, name))) {
+			if(macro->fun) {
+				if(jump_only) {
+					fprintf(stderr, "%s: cannot goto builtin %s\n",
+					        progname, macro->name);
+					break;
+				}
+				status = macro->fun(dstack, ARRLEN(dstack), &dstack_top);
+				if(status != FUN_OK) {
+					return status;
+				}
+				cstack[cstack_top] = cstack[cstack_top]->next;
+				continue;
+			} else {
+				cstack_top += !jump_only;
+				cstack[cstack_top] = macro->data;
+				continue;
+			}
+		}
+
+		int status = push_value(name, progname, &files, macros,
 		                        dstack, &dstack_top, ARRLEN(dstack),
 		                        cstack, &cstack_top, ARRLEN(cstack));
-		if(status < 0) break;
-		if(status == 0) continue;
+		if(status) break;
 
 		cstack[cstack_top] = cstack[cstack_top]->next;
 	}
