@@ -10,29 +10,12 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define TOKLEN 64
-#define TOKFMT "%64s"
+
 struct token {
 	struct token *next;
-	//char name[TOKLEN];
 	char *name;
 };
 typedef struct token token_t;
-
-struct filedata {
-	struct filedata *next;
-	struct token *data;
-	char *buf;
-	size_t buflen;
-};
-typedef struct filedata filedata_t;
-
-struct macro {
-	struct macro *next;
-	char name[TOKLEN];
-	struct token *data;
-};
-typedef struct macro macro_t;
 
 typedef enum {
 	VAL_LONG,
@@ -54,7 +37,23 @@ typedef enum {
 	FUN_LONG_ARGS_ONLY,
 } status_t;
 
-typedef status_t (*fun_t)(val_t *stack, size_t stack_max, long *stack_top);
+typedef status_t (*builtin_t)(val_t *stack, size_t stack_max, long *stack_top);
+
+struct filedata {
+	struct filedata *next;
+	struct token *data;
+	char *buf;
+	size_t buflen;
+};
+typedef struct filedata filedata_t;
+
+struct macro {
+	struct macro *next;
+	char *name;
+	struct token *data;
+};
+typedef struct macro macro_t;
+
 
 #define STACK_OUTPUT_NEED(N) \
 	do { if(*stack_top == (long)stack_max-(N)-1) return FUN_OVERFLOW; } while(0)
@@ -316,7 +315,7 @@ status_t fun_int_q(val_t *stack, size_t stack_max, long *stack_top)
 	STACK_EMIT(0);
 }
 
-struct { char *name; fun_t fun; } builtins[] = {
+struct { char *name; builtin_t fun; } builtins[] = {
 	{ "add", fun_add },
 	{ "mul", fun_mult },
 	{ "sub", fun_sub },
@@ -342,6 +341,8 @@ struct { char *name; fun_t fun; } builtins[] = {
 	{ "nan?", fun_nan_q },
 	{ "int?", fun_int_q },
 };
+
+
 
 int read_file(char *path, char **data, size_t *len)
 {
@@ -426,7 +427,7 @@ int generate_macro(token_t *tok_in, macro_t **macros, token_t **tok_out)
 	macro_t *newmac = calloc(1, sizeof(macro_t));
 	token_t *newtok, *cursor, *last = NULL;
 
-	strncpy(newmac->name, tok_in->name + 5, sizeof(newmac->name));
+	newmac->name = tok_in->name + 5;
 
 	for(cursor = tok_in->next;
 	    cursor && strcmp(cursor->name, ":");
@@ -549,7 +550,7 @@ int main(int argc, char *argv[])
 {
 	int i, j;
 	status_t status;
-	char *name = argv[0];
+	char *progname = argv[0];
 
 	#define DSTACK_CAP 256
 	val_t dstack[DSTACK_CAP];
@@ -583,14 +584,14 @@ int main(int argc, char *argv[])
 			if(strncmp(tok->name, ":def:", 5) == 0) {
 				// macro definition
 				generate_macro(tok, &macros, &cstack[cstack_top]);
-			} else if(strncmp(name, ":load:", 6) == 0) {
+			} else if(strncmp(tok->name, ":load:", 6) == 0) {
 				// file load
 				filedata_t *newfile;
 				int status = tokenize_file(tok->name+6, &newfile);
 				newfile->next = files;
 				files = newfile;
-				tok = cstack[++ (*cstack_top)] = newfile->data;
-			} else if(strcmp(name, ":ret:") == 0) {
+				tok = cstack[++ cstack_top] = newfile->data;
+			} else if(strcmp(tok->name, ":ret:") == 0) {
 				// return from macro
 				cstack_top--;
 				cstack[cstack_top] = cstack[cstack_top]->next;
@@ -598,7 +599,7 @@ int main(int argc, char *argv[])
 			continue;
 		}
 
-		int status = exec_token(tok, name, &files, macros,
+		int status = exec_token(tok, progname, &files, macros,
 		                        dstack, &dstack_top, ARRLEN(dstack),
 		                        cstack, &cstack_top, ARRLEN(cstack));
 		if(status < 0) break;
