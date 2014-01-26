@@ -10,6 +10,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include "load_wrapper.h"
+#include "builtins.h"
+
 #define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
 struct token {
@@ -17,28 +20,6 @@ struct token {
 	char *name;
 };
 typedef struct token token_t;
-
-typedef enum {
-	VAL_LONG,
-	VAL_DOUBLE,
-} val_type_t;
-
-typedef struct {
-	val_type_t type;
-	union {
-		double d;
-		long l;
-	} u;
-} val_t;
-
-typedef enum {
-	FUN_OK,
-	FUN_UNDERFLOW,
-	FUN_OVERFLOW,
-	FUN_LONG_ARGS_ONLY,
-} status_t;
-
-typedef status_t (*builtin_t)(val_t *stack, size_t stack_max, long *stack_top);
 
 struct filedata {
 	struct filedata *next;
@@ -55,299 +36,6 @@ struct macro {
 	builtin_t fun;
 };
 typedef struct macro macro_t;
-
-
-#define STACK_OUTPUT_NEED(N) \
-	do { if(*stack_top == (long)stack_max-(N)-1) return FUN_OVERFLOW; } while(0)
-
-#define STACK_INPUT_NEED(N) \
-	do { if(*stack_top < (N)-1) return FUN_UNDERFLOW; } while(0)
-
-#define STACK_ARG(N) \
-	stack[*stack_top - (N)]
-
-#define STACK_CONSUME(N) \
-	do{ (*stack_top) -= (N); return FUN_OK; } while(0)
-
-#define STACK_EMIT(N) \
-	do{ (*stack_top) += (N); return FUN_OK; } while(0)
-
-status_t fun_add(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(2);
-	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
-	if(type1 == type0) {
-		if(type1 == VAL_LONG) STACK_ARG(1).u.l += STACK_ARG(0).u.l;
-		else STACK_ARG(1).u.d += STACK_ARG(0).u.d;
-	} else {
-		if(type1 == VAL_LONG) STACK_ARG(1).u.d = STACK_ARG(1).u.l;
-		if(type0 == VAL_LONG) STACK_ARG(0).u.d = STACK_ARG(0).u.l;
-		STACK_ARG(1).u.d += STACK_ARG(0).u.d;
-		STACK_ARG(1).type = VAL_DOUBLE;
-	}
-	STACK_CONSUME(1);
-}
-
-status_t fun_mult(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(2);
-	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
-	if(type1 == type0) {
-		if(type1 == VAL_LONG) STACK_ARG(1).u.l *= STACK_ARG(0).u.l;
-		else STACK_ARG(1).u.d *= STACK_ARG(0).u.d;
-	} else {
-		if(type1 == VAL_LONG) STACK_ARG(1).u.d = STACK_ARG(1).u.l;
-		if(type0 == VAL_LONG) STACK_ARG(0).u.d = STACK_ARG(0).u.l;
-		STACK_ARG(1).u.d *= STACK_ARG(0).u.d;
-		STACK_ARG(1).type = VAL_DOUBLE;
-	}
-	STACK_CONSUME(1);
-}
-
-status_t fun_sub(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(2);
-	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
-	if(type1 == type0) {
-		if(type1 == VAL_LONG) STACK_ARG(1).u.l -= STACK_ARG(0).u.l;
-		else STACK_ARG(1).u.d -= STACK_ARG(0).u.d;
-	} else {
-		if(type1 == VAL_LONG) STACK_ARG(1).u.d = STACK_ARG(1).u.l;
-		if(type0 == VAL_LONG) STACK_ARG(0).u.d = STACK_ARG(0).u.l;
-		STACK_ARG(1).u.d -= STACK_ARG(0).u.d;
-		STACK_ARG(1).type = VAL_DOUBLE;
-	}
-	STACK_CONSUME(1);
-}
-
-status_t fun_div(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(2);
-	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
-	if(type1 == type0) {
-		if(type1 == VAL_LONG) STACK_ARG(1).u.l /= STACK_ARG(0).u.l;
-		else STACK_ARG(1).u.d /= STACK_ARG(0).u.d;
-	} else {
-		if(type1 == VAL_LONG) STACK_ARG(1).u.d = STACK_ARG(1).u.l;
-		if(type0 == VAL_LONG) STACK_ARG(0).u.d = STACK_ARG(0).u.l;
-		STACK_ARG(1).u.d /= STACK_ARG(0).u.d;
-		STACK_ARG(1).type = VAL_DOUBLE;
-	}
-	STACK_CONSUME(1);
-}
-
-status_t fun_bit_nor(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(2);
-	val_type_t type1 = STACK_ARG(1).type, type0 = STACK_ARG(0).type;
-	if(type1 != VAL_LONG || type1 != type0) {
-		fprintf(stderr, "bit_nor requires LONG\n");
-		return FUN_LONG_ARGS_ONLY;
-	}
-	STACK_ARG(1).u.l = ~( STACK_ARG(1).u.l | STACK_ARG(0).u.l );
-	STACK_CONSUME(1);
-}
-
-status_t fun_int(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type != VAL_LONG)
-		STACK_ARG(0).u.l = STACK_ARG(0).u.d;
-	STACK_ARG(0).type = VAL_LONG;
-	STACK_CONSUME(0);
-}
-
-status_t fun_ceil(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type != VAL_LONG)
-		STACK_ARG(0).u.d = ceil(STACK_ARG(0).u.d);
-	STACK_CONSUME(0);
-}
-
-status_t fun_floor(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type != VAL_LONG)
-		STACK_ARG(0).u.d = floor(STACK_ARG(0).u.d);
-	STACK_CONSUME(0);
-}
-
-status_t fun_ln(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type == VAL_LONG) STACK_ARG(0).u.d = log(STACK_ARG(0).u.l);
-	else STACK_ARG(0).u.d = log(STACK_ARG(0).u.d);
-	STACK_ARG(0).type = VAL_DOUBLE;
-	STACK_CONSUME(0);
-}
-
-status_t fun_exp(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type == VAL_LONG) STACK_ARG(0).u.d = exp(STACK_ARG(0).u.l);
-	else STACK_ARG(0).u.d = exp(STACK_ARG(0).u.d);
-	STACK_ARG(0).type = VAL_DOUBLE;
-	STACK_CONSUME(0);
-}
-
-status_t fun_sin(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type == VAL_LONG) STACK_ARG(0).u.d = sin(STACK_ARG(0).u.l);
-	else STACK_ARG(0).u.d = sin(STACK_ARG(0).u.d);
-	STACK_ARG(0).type = VAL_DOUBLE;
-	STACK_CONSUME(0);
-}
-
-status_t fun_push_pi(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_OUTPUT_NEED(1);
-	STACK_ARG(-1).u.d = M_PI;
-	STACK_ARG(-1).type = VAL_DOUBLE;
-	STACK_EMIT(1);
-}
-
-status_t fun_swap(val_t *stack, size_t stack_max, long *stack_top)
-{
-	val_t r;
-	STACK_INPUT_NEED(2);
-	r = STACK_ARG(0);
-	STACK_ARG(0) = STACK_ARG(1);
-	STACK_ARG(0) = r;
-	STACK_CONSUME(0);
-}
-
-status_t fun_drop(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	STACK_CONSUME(1);
-}
-
-status_t fun_dup(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	STACK_OUTPUT_NEED(1);
-	STACK_ARG(-1) = STACK_ARG(0);
-	STACK_EMIT(1);
-}
-
-status_t fun_rot(val_t *stack, size_t stack_max, long *stack_top)
-{
-	val_t r;
-	STACK_INPUT_NEED(3);
-	r = STACK_ARG(0);
-	STACK_ARG(0) = STACK_ARG(1);
-	STACK_ARG(1) = STACK_ARG(2);
-	STACK_ARG(2) = r;
-	STACK_CONSUME(0);
-}
-
-status_t fun_clear(val_t *stack, size_t stack_max, long *stack_top)
-{
-	*stack_top = 0;
-	STACK_CONSUME(0);
-}
-
-status_t fun_top(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type == VAL_LONG) printf("%ld\n", STACK_ARG(0).u.l);
-	else printf("%20.20f\n", STACK_ARG(0).u.d);
-	STACK_CONSUME(0);
-}
-
-status_t fun_stack(val_t *stack, size_t stack_max, long *stack_top)
-{
-	long i;
-	for(i = 0; i <= *stack_top; i++) {
-		if(stack[i].type == VAL_LONG) printf("%ld\n", stack[i].u.l);
-		else printf("%20.20f\n", stack[i].u.d);
-	}
-	STACK_CONSUME(0);
-}
-
-status_t fun_height(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_OUTPUT_NEED(1);
-	STACK_ARG(-1).u.l = *stack_top;
-	STACK_EMIT(1);
-}
-
-status_t fun_lt_q(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(2);
-	double x, y;
-
-	if(STACK_ARG(1).type == VAL_LONG) x = STACK_ARG(1).u.l;
-	else x = STACK_ARG(1).u.d;
-
-	if(STACK_ARG(0).type == VAL_LONG) y = STACK_ARG(0).u.l;
-	else y = STACK_ARG(0).u.d;
-
-	STACK_ARG(1).u.l = x < y;
-	STACK_ARG(1).type = VAL_LONG;
-
-	STACK_CONSUME(1);
-}
-
-status_t fun_inf_q(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type != VAL_DOUBLE) STACK_ARG(0).u.l = 0;
-	STACK_ARG(0).u.l = isinf(STACK_ARG(0).u.d);
-	STACK_ARG(0).type = VAL_LONG;
-	STACK_EMIT(0);
-}
-
-status_t fun_nan_q(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	if(STACK_ARG(0).type != VAL_DOUBLE) STACK_ARG(0).u.l = 0;
-	STACK_ARG(0).u.l = isnan(STACK_ARG(0).u.d);
-	STACK_ARG(0).type = VAL_LONG;
-	STACK_EMIT(0);
-}
-
-status_t fun_int_q(val_t *stack, size_t stack_max, long *stack_top)
-{
-	STACK_INPUT_NEED(1);
-	STACK_ARG(0).u.l = STACK_ARG(0).type == VAL_LONG;
-	STACK_ARG(0).type = VAL_LONG;
-	STACK_EMIT(0);
-}
-
-typedef struct {
-	char *name;
-	builtin_t fun;
-} builtin_ent_t;
-
-builtin_ent_t builtins[] = {
-	{ "add", fun_add },
-	{ "mul", fun_mult },
-	{ "sub", fun_sub },
-	{ "div", fun_div },
-	{ "bit-nor", fun_bit_nor },
-	{ "int", fun_int },
-	{ "ceil", fun_ceil },
-	{ "floor", fun_floor },
-	{ "ln", fun_ln },
-	{ "exp", fun_exp },
-	{ "sin", fun_sin },
-	{ "_pi", fun_push_pi },
-	{ "swap", fun_swap },
-	{ "drop", fun_drop },
-	{ "dup", fun_dup },
-	{ "rot", fun_rot },
-	{ "clear", fun_clear },
-	{ "top", fun_top },
-	{ "stack", fun_stack },
-	{ "height", fun_height },
-	{ "lt?", fun_lt_q },
-	{ "inf?", fun_inf_q },
-	{ "nan?", fun_nan_q },
-	{ "int?", fun_int_q },
-};
 
 int read_file(char *path, char **data, size_t *len)
 {
@@ -446,7 +134,7 @@ void add_macro(macro_t **macros, char *name, token_t *tokens, builtin_t fun)
 
 int generate_macro(token_t *tok_in, macro_t **macros, token_t **tok_out)
 {
-	token_t *first, *last = NULL, *newtok, *cursor;
+	token_t *first = NULL, *last = NULL, *newtok, *cursor;
 	char *name = tok_in->name + 5;
 
 	for(cursor = tok_in->next;
@@ -524,9 +212,27 @@ int push_value(char *name, char *progname, filedata_t **files,
 	return 0;
 }
 
+int import_builtins(char *path, macro_t **macros)
+{
+	ldwrap_ent_t *funs, *cursor;
+	int status = load_wrapper(path, &funs);
+	if(status) {
+		return status;
+	}
+
+	for(cursor = funs;
+	    cursor->name && cursor->fun;
+	    cursor++) {
+
+		add_macro(macros, cursor->name, NULL, cursor->fun);
+	}
+
+	free(funs);
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
-	int i, j;
 	status_t status;
 	char *progname = argv[0];
 
@@ -540,10 +246,6 @@ int main(int argc, char *argv[])
 
 	macro_t *macros = NULL;
 	filedata_t *files = NULL;
-
-	for(i = 0; i < ARRLEN(builtins); i++) {
-		add_macro(&macros, builtins[i].name, NULL, builtins[i].fun);
-	}
 
 	tokenize_argv(argc, argv, &files);
 
@@ -583,10 +285,13 @@ int main(int argc, char *argv[])
 			} else if(strncmp(name, ":load:", 6) == 0) {
 				// file load
 				filedata_t *newfile;
-				int status = tokenize_file(name+6, &newfile);
+				if(tokenize_file(name+6, &newfile) < 0) break;
 				newfile->next = files;
 				files = newfile;
 				tok = cstack[++ cstack_top] = newfile->data;
+			} else if(strncmp(name, ":import:", 8) == 0) {
+				import_builtins(name + 8, &macros);
+				cstack[cstack_top] = cstack[cstack_top]->next;
 			} else {
 				fprintf(stderr, "%s: unknown directive: %s\n", progname, name);
 				break;
