@@ -13,6 +13,10 @@
 #include "load_wrapper.h"
 #include "builtins.h"
 
+#if ! defined(SYSDIR)
+#define SYSDIR "/etc/"
+#endif
+
 #define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
 struct token {
@@ -61,15 +65,43 @@ void tokenize_argv(int argc, char *argv[], filedata_t **files)
 	(newfile)->buf = NULL;
 	(newfile)->buflen = 0;
 
+#if 0
+	static char userstr[256];
+	static char sysstr[256];
+
+	if(strcmp(argv[0], "--nouser") == 0) {
+		;
+	} else {
+		char *homedir = getenv("HOME");
+		if(homedir) {
+			snprintf(userstr, sizeof(userstr), ":load:%s/.rpncalc", homedir);
+			token_t *tok = calloc(1, sizeof(token_t));
+			assert(tok);
+			tok->name = userstr;
+			if(tok_last) tok_last = tok_last->next = tok;
+			else newfile->data = tok_last = tok;
+		}
+	}
+
+	if(strcmp(argv[0], "--nosystem") == 0) {
+		;
+	} else {
+		char *sysdir = SYSDIR;
+		snprintf(sysstr, sizeof(sysstr), ":load:%s/.rpncalc", sysdir);
+		token_t *tok = calloc(1, sizeof(token_t));
+		assert(tok);
+		tok->name = sysstr;
+		if(tok_last) tok_last = tok_last->next = tok;
+		else newfile->data = tok_last = tok;
+	}
+#endif
+
 	for(i = 1; i < argc; i++) {
 		token_t *tok = calloc(1, sizeof(token_t));
 		assert(tok);
 		tok->name = argv[i];
-		if(tok_last == NULL) {
-			newfile->data = tok_last = tok;
-		} else {
-			tok_last = tok_last->next = tok;
-		}
+		if(tok_last) tok_last = tok_last->next = tok;
+		else newfile->data = tok_last = tok;
 	}
 
 	newfile->next = *files;
