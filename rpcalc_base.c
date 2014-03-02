@@ -248,7 +248,7 @@ status_t rpbase_int_q(val_t *stack, size_t stack_max, long *stack_top)
 	STACK_EMIT(0);
 }
 
-ldwrap_assoc_t rpcalc_base_data_names[] = {
+ldwrap_assoc_t base_data_names[] = {
 	{ "rpbase_add", "add" },
 	{ "rpbase_mult", "mul" },
 	{ "rpbase_sub", "sub" },
@@ -275,5 +275,5 @@ ldwrap_assoc_t rpcalc_base_data_names[] = {
 	{ "rpbase_int_q", "int?" },
 };
 
-size_t rpcalc_base_data_count =
-	sizeof(rpcalc_base_data_names) / sizeof(rpcalc_base_data_names[0]);
+size_t base_data_count =
+	sizeof(base_data_names) / sizeof(base_data_names[0]);

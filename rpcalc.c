@@ -13,10 +13,6 @@
 #include "load_wrapper.h"
 #include "builtins.h"
 
-#if ! defined(SYSDIR)
-#define SYSDIR "/etc/"
-#endif
-
 #define ARRLEN(X) ( sizeof(X) / sizeof((X)[0]) )
 
 struct token {
@@ -57,46 +53,59 @@ int read_file(char *path, char **data, size_t *len)
 
 void tokenize_argv(int argc, char *argv[], filedata_t **files)
 {
-	int i;
+	int i, status;
 	token_t *tok_last = NULL;
+
+	// allocate a "file" structure for argv
 	filedata_t *newfile = calloc(1, sizeof(filedata_t));
 	assert(files);
 	(newfile)->data = NULL;
 	(newfile)->buf = NULL;
 	(newfile)->buflen = 0;
 
-#if 0
+	bool nouser = false; // don't load user defaults
+	bool nosys = false; // don't load system defaults
 	static char userstr[256];
-	static char sysstr[256];
+	static char etcstr[256];
+	token_t *usertok = NULL;
+	token_t *etctok = NULL;
+	char *homedir = getenv("HOME");
+	struct stat sb;
 
-	if(strcmp(argv[0], "--nouser") == 0) {
-		;
+	// create user defaults load token
+	if(!homedir) {
+		nouser = true;
 	} else {
-		char *homedir = getenv("HOME");
-		if(homedir) {
-			snprintf(userstr, sizeof(userstr), ":load:%s/.rpncalc", homedir);
-			token_t *tok = calloc(1, sizeof(token_t));
-			assert(tok);
-			tok->name = userstr;
-			if(tok_last) tok_last = tok_last->next = tok;
-			else newfile->data = tok_last = tok;
+		snprintf(userstr, sizeof(userstr), ":load:%s/.rpcalc_init", homedir);
+		status = stat(userstr + 6, &sb);
+		if(status) nouser = true;
+		else if(! (sb.st_mode & (S_IFREG | S_IFLNK) )) nouser = true;
+		else {
+			usertok = calloc(1, sizeof(token_t));
+			assert(usertok);
+			usertok->name = userstr;
 		}
 	}
 
-	if(strcmp(argv[0], "--nosystem") == 0) {
-		;
-	} else {
-		char *sysdir = SYSDIR;
-		snprintf(sysstr, sizeof(sysstr), ":load:%s/.rpncalc", sysdir);
-		token_t *tok = calloc(1, sizeof(token_t));
-		assert(tok);
-		tok->name = sysstr;
-		if(tok_last) tok_last = tok_last->next = tok;
-		else newfile->data = tok_last = tok;
+	// create system defaults load token
+	snprintf(etcstr, sizeof(etcstr), ":load:" PREFIX "/etc/rpcalc/rpcalc_init");
+	status = stat(etcstr + 6, &sb);
+	if(status) nosys = true;
+	else if(! (sb.st_mode & (S_IFREG | S_IFLNK) )) nosys = true;
+	else {
+		etctok = calloc(1, sizeof(token_t));
+		assert(etctok);
+		etctok->name = etcstr;
 	}
-#endif
 
+	// assemble tokens from argv
 	for(i = 1; i < argc; i++) {
+		if(strcmp(argv[i], "--nouser") == 0) {
+			nouser = true;
+		} else if(strcmp(argv[i], "--nosys") == 0) {
+			nosys = true;
+		}
+
 		token_t *tok = calloc(1, sizeof(token_t));
 		assert(tok);
 		tok->name = argv[i];
@@ -104,6 +113,19 @@ void tokenize_argv(int argc, char *argv[], filedata_t **files)
 		else newfile->data = tok_last = tok;
 	}
 
+	// add user defaults token
+	if(! nouser) {
+		usertok->next = newfile->data;
+		newfile->data = usertok;
+	}
+
+	// add system defaults token
+	if(! nosys) {
+		etctok->next = newfile->data;
+		newfile->data = etctok;
+	}
+
+	// add argv "file"
 	newfile->next = *files;
 	*files = newfile;
 }
